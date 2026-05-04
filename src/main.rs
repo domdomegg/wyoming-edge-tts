@@ -201,7 +201,10 @@ fn spawn_sentence_jobs(
 
 /// Stream synthesized audio for `text` to the Wyoming client. Splits the
 /// input on sentence boundaries and consumes per-sentence channels in
-/// order so audio plays back in the correct sequence.
+/// order so audio plays back in the correct sequence. Emits
+/// `audio-start` and `audio-chunk*`; the caller is responsible for the
+/// terminator (`audio-stop` for non-streaming, `synthesize-stopped` for
+/// streaming) since the two protocol modes use different events.
 async fn synthesize_and_stream(
     write_half: &mut tokio::net::tcp::OwnedWriteHalf,
     text: &str,
@@ -258,8 +261,6 @@ async fn synthesize_and_stream(
             Err(e) => eprintln!("sentence task panicked: {:#}", e),
         }
     }
-
-    write_event(write_half, "audio-stop", None, None).await?;
     Ok(())
 }
 
@@ -279,18 +280,31 @@ async fn handle_client(
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
 
-    // Buffered text + voice when streaming text via synthesize-start /
-    // synthesize-chunk / synthesize-stop. Reset on each session start.
+    // Streaming-input protocol state. HA's streaming flow is:
+    //   synthesize-start (voice) → synthesize-chunk (text) [* N] →
+    //   synthesize (full text, "for compatibility") → synthesize-stop
+    // and the response terminator is `synthesize-stopped` instead of
+    // `audio-stop`. We track whether we're inside a streaming session
+    // (after seeing synthesize-start) so we can:
+    //   * ignore the compatibility `synthesize` echo (would otherwise
+    //     fire synthesis twice and leave HA waiting forever for a
+    //     `synthesize-stopped` that never came),
+    //   * emit the right terminator at the end.
     let mut stream_text = String::new();
     let mut stream_voice: Option<String> = None;
+    let mut streaming_session = false;
 
     while let Some(hdr) = read_event(&mut reader).await? {
-        eprintln!("event: type={} data={:?}", hdr.event_type, hdr.data);
         match hdr.event_type.as_str() {
             "describe" => {
                 write_event(&mut write_half, "info", Some((*info).clone()), None).await?;
             }
             "synthesize" => {
+                if streaming_session {
+                    // Compatibility echo from HA — synthesis happens on
+                    // synthesize-stop, not here. Drop it.
+                    continue;
+                }
                 let data = hdr.data.as_ref();
                 let text = data
                     .and_then(|d| d.get("text"))
@@ -301,11 +315,13 @@ async fn handle_client(
                 }
                 let voice = cfg.resolve_voice(Some(extract_voice(data, &cfg.default_voice)));
                 synthesize_and_stream(&mut write_half, text, &voice, Arc::clone(&sem)).await?;
+                write_event(&mut write_half, "audio-stop", None, None).await?;
             }
             "synthesize-start" => {
                 stream_text.clear();
                 let v = extract_voice(hdr.data.as_ref(), &cfg.default_voice);
                 stream_voice = Some(cfg.resolve_voice(Some(v)));
+                streaming_session = true;
             }
             "synthesize-chunk" => {
                 if let Some(text) = hdr
@@ -318,7 +334,6 @@ async fn handle_client(
                 }
             }
             "synthesize-stop" => {
-                eprintln!("synthesize-stop: buffered text len={}", stream_text.len());
                 if !stream_text.is_empty() {
                     let voice = stream_voice
                         .clone()
@@ -326,12 +341,12 @@ async fn handle_client(
                     synthesize_and_stream(&mut write_half, &stream_text, &voice, Arc::clone(&sem))
                         .await?;
                 }
+                write_event(&mut write_half, "synthesize-stopped", None, None).await?;
                 stream_text.clear();
                 stream_voice = None;
+                streaming_session = false;
             }
-            _ => {
-                eprintln!("ignoring unknown event: {}", hdr.event_type);
-            }
+            _ => {}
         }
     }
     Ok(())
