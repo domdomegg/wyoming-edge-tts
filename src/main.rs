@@ -285,6 +285,7 @@ async fn handle_client(
     let mut stream_voice: Option<String> = None;
 
     while let Some(hdr) = read_event(&mut reader).await? {
+        eprintln!("event: type={} data={:?}", hdr.event_type, hdr.data);
         match hdr.event_type.as_str() {
             "describe" => {
                 write_event(&mut write_half, "info", Some((*info).clone()), None).await?;
@@ -317,6 +318,7 @@ async fn handle_client(
                 }
             }
             "synthesize-stop" => {
+                eprintln!("synthesize-stop: buffered text len={}", stream_text.len());
                 if !stream_text.is_empty() {
                     let voice = stream_voice
                         .clone()
@@ -327,7 +329,9 @@ async fn handle_client(
                 stream_text.clear();
                 stream_voice = None;
             }
-            _ => {}
+            _ => {
+                eprintln!("ignoring unknown event: {}", hdr.event_type);
+            }
         }
     }
     Ok(())
