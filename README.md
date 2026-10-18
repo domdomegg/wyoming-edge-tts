@@ -26,7 +26,7 @@ All env-var-driven:
 
 | Variable | Default | Description |
 |---|---|---|
-| `PORT` | `10210` | Listen port. |
+| `PORT` | `10210` | Listen port (all IPv4 and IPv6 interfaces). |
 | `VOICES` | _(curated 12-voice English set)_ | Space-separated list of Edge voice IDs (e.g. `en-GB-SoniaNeural en-US-AvaNeural`). Full list: see [Microsoft's voice gallery](https://speech.microsoft.com/portal/voicegallery). |
 | `DEFAULT_VOICE` | `en-US-AvaNeural` | Voice used when the client doesn't specify one. Must be in `VOICES`. |
 | `MAX_CONCURRENT` | `3` | Cap on parallel WebSockets to Microsoft per synthesis request. Higher values speed up multi-sentence synthesis but burn more upstream connections. |
