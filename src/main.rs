@@ -400,7 +400,7 @@ async fn main() -> Result<()> {
         cfg.max_concurrent,
     );
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("[::]:{}", port);
     let listener = TcpListener::bind(&addr).await?;
     eprintln!("Listening on {}", addr);
 
