@@ -9,7 +9,7 @@ readme = "README.md"
 
 [dependencies]
 # Edge TTS WebSocket client.
-msedge-tts = "0.3"
+msedge-tts = "0.4"
 
 # MP3 decoding. The Microsoft free read-aloud endpoint only accepts
 # `audio-24khz-48kbitrate-mono-mp3` (raw PCM formats are silently
